@@ -1,0 +1,23 @@
+# AURIX Development Studio build output
+TriCore Debug*/
+TriCore Release*/
+Debug/
+Release/
+
+# Build artifacts (in case they appear outside build dirs)
+*.o
+*.d
+*.src
+*.elf
+*.hex
+*.map
+*.mdf
+*.opt
+
+# Eclipse/CDT indexing
+.metadata/
+*.launch
+
+# OS files
+Thumbs.db
+.DS_Store
