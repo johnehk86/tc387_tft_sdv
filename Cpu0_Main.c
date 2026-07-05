@@ -28,25 +28,64 @@
 #include "IfxCpu.h"
 #include "IfxScuWdt.h"
 #include "Ifx_Cfg_Ssw.h"
+#include "IfxStm.h"
+#include "IfxGeth.h"
+#include "Ifx_Lwip.h"
+#include "Configuration.h"
+#include "ConfigurationIsr.h"
+#include "tcp_echo.h"
+#include "udp_echo.h"
 
 IFX_ALIGN(4) IfxCpu_syncEvent cpuSyncEvent = 0;
+
+/** \brief 1ms LwIP tick, re-arms the STM0 compare and drives Ifx_Lwip_onTimerTick() */
+IFX_INTERRUPT(updateLwIPStackISR, 0, ISR_PRIORITY_OS_TICK);
+
+void updateLwIPStackISR(void)
+{
+    IfxStm_increaseCompare(&MODULE_STM0, IfxStm_Comparator_0, IFX_CFG_STM_TICKS_PER_MS);
+    g_TickCount_1ms++;
+    Ifx_Lwip_onTimerTick();
+}
 
 void core0_main(void)
 {
     IfxCpu_enableInterrupts();
-    
+
     /* !!WATCHDOG0 AND SAFETY WATCHDOG ARE DISABLED HERE!!
      * Enable the watchdogs and service them periodically if it is required
      */
     IfxScuWdt_disableCpuWatchdog(IfxScuWdt_getCpuWatchdogPassword());
     IfxScuWdt_disableSafetyWatchdog(IfxScuWdt_getSafetyWatchdogPassword());
-    
+
     /* Wait for CPU sync event */
     IfxCpu_emitEvent(&cpuSyncEvent);
     IfxCpu_waitEvent(&cpuSyncEvent, 1);
-    
-    
+
+    /* STM0 compare: fires every 1ms after an initial 10ms delay, drives the LwIP timers */
+    IfxStm_CompareConfig stmCompareConfig;
+    IfxStm_initCompareConfig(&stmCompareConfig);
+    stmCompareConfig.triggerPriority     = ISR_PRIORITY_OS_TICK;
+    stmCompareConfig.comparatorInterrupt = IfxStm_ComparatorInterrupt_ir0;
+    stmCompareConfig.ticks               = IFX_CFG_STM_TICKS_PER_MS * 10;
+    stmCompareConfig.typeOfService       = IfxSrc_Tos_cpu0;
+    IfxStm_initCompare(&MODULE_STM0, &stmCompareConfig);
+
+    /* Enable the GETH (Gigabit Ethernet) module before lwIP/PHY init */
+    IfxGeth_enableModule(&MODULE_GETH);
+
+    /* MAC address matches the one documented in the Vector 실습 PDF, so ARP/Wireshark
+     * captures line up with the exercise material. */
+    eth_addr_t mac;
+    MAC_ADDR(&mac, 0x00, 0x00, 0x0C, 0x11, 0x11, 0x11);
+    Ifx_Lwip_init(mac);
+
+    TcpEchoInit();
+    UdpEchoInit();
+
     while(1)
     {
+        Ifx_Lwip_pollTimerFlags();
+        Ifx_Lwip_pollReceiveFlags();
     }
 }
